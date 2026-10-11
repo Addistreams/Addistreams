@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Addistream
 
-## Getting Started
+Addistream is a polished music distribution and creator upload platform concept built with Next.js. It includes a creator dashboard, admin approval workflow, upload credit system, drag-and-drop file selection, audio preview, and a login flow to gate app access.
 
-First, run the development server:
+## Features
+
+- Creator upload dashboard with drag-and-drop audio upload
+- Upload credit packs and purchase flow
+- Audio preview and mastering slider
+- Upload queue listing with status labels
+- Admin approval console for queued tracks
+- Monetization and trial settings panel
+- Login workflow for creator/admin access
+- Production-ready Next.js app with Vercel deployment support
+
+## Tech Stack
+
+- Next.js 16
+- React 19
+- TypeScript
+- Tailwind CSS
+- Vercel deployment ready
+
+## Local Development
+
+1. Copy the sample env file:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Start the app:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Then open:
 
-## Learn More
+- http://127.0.0.1:3000
 
-To learn more about Next.js, take a look at the following resources:
+For Vercel, set `NEXT_PUBLIC_APP_URL` to your live production URL.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Demo Login
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Use any email/password combination, or use:
+
+```text
+creator@addistream.com
+password: demo123
+```
+
+## Production Build
+
+```bash
+npm run build
+npm run start -- --hostname 127.0.0.1 --port 3000
+```
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Push this repository to GitHub.
+2. Open Vercel and import the repo.
+3. Keep the default framework preset for Next.js.
+4. Add the environment variable:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```text
+NEXT_PUBLIC_APP_URL=https://your-production-domain.com
+```
+
+5. Deploy.
+
+This project already includes a `vercel.json` configuration for a standard Next.js deployment.
+
+## Project Structure
+
+```text
+app/
+  admin/page.tsx
+  creator/page.tsx
+  login/page.tsx
+  page.tsx
+  layout.tsx
+  globals.css
+public/
+README.md
+package.json
+vercel.json
+```

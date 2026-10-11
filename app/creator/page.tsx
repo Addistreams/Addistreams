@@ -149,6 +149,7 @@ export default function CreatorDashboard() {
     setUploading(true);
 
     window.setTimeout(() => {
+      const fileUrl = previewUrl ?? URL.createObjectURL(file);
       setTracks((current) => [
         {
           id: Date.now(),
@@ -157,7 +158,7 @@ export default function CreatorDashboard() {
           date: 'Just now',
           size: formatFileSize(file.size),
           mastering: masteringBoost,
-          source: previewUrl ?? undefined,
+          source: fileUrl,
         },
         ...current,
       ]);
@@ -171,6 +172,18 @@ export default function CreatorDashboard() {
   };
 
   const totalSelectedSize = selectedFiles.reduce((total, file) => total + file.size, 0);
+
+  const handleDownload = (track: Track) => {
+    if (!track.source) return;
+
+    const anchor = document.createElement('a');
+    anchor.href = track.source;
+    anchor.download = `${track.name}.mp3`;
+    anchor.rel = 'noopener noreferrer';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-6 md:p-8">
@@ -387,8 +400,15 @@ export default function CreatorDashboard() {
               </div>
 
               {previewUrl && (
-                <div className="mt-4 overflow-hidden rounded-xl border border-slate-700 bg-slate-950">
+                <div className="mt-4 space-y-3 overflow-hidden rounded-xl border border-slate-700 bg-slate-950 p-3">
                   <audio controls src={previewUrl} className="w-full" />
+                  <a
+                    href={previewUrl}
+                    download={`${uploadName.trim() || selectedFiles[0].name.replace(/\.[^/.]+$/, '')}.mp3`}
+                    className="inline-flex rounded-lg bg-amber-400 px-3 py-2 text-xs font-black uppercase tracking-[0.18em] text-slate-950"
+                  >
+                    Download file
+                  </a>
                 </div>
               )}
             </div>
@@ -414,9 +434,18 @@ export default function CreatorDashboard() {
                   <p className="text-xs text-slate-400">{track.date} • {track.size}</p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   {track.source && (
-                    <audio controls src={track.source} className="h-8 w-48" />
+                    <>
+                      <audio controls src={track.source} className="h-8 w-48" />
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(track)}
+                        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-white transition hover:border-amber-400 hover:text-amber-300"
+                      >
+                        Download
+                      </button>
+                    </>
                   )}
                   <span
                     className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${

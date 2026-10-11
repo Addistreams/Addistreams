@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
+const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+
 export const metadata: Metadata = {
-  metadataBase: new URL("http://localhost:3000"),
+  metadataBase: new URL(appUrl),
   title: {
     default: "Addistream | Music Distribution & Creator Upload Platform",
     template: "%s | Addistream",
@@ -27,7 +29,7 @@ export const metadata: Metadata = {
     description:
       "Upload music, preview mastering, manage approvals, and grow a creator-first distribution platform.",
     siteName: "Addistream",
-    url: "http://localhost:3000",
+    url: appUrl,
     type: "website",
     locale: "en_US",
   },
