@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
     template: "%s | Addistream",
   },
   description:
-    "Addistream helps creators upload tracks, manage mastering previews, approve submissions, and distribute music to modern streaming audiences.",
+    "Addistream gives music creators a private audio workspace for release details, uploads, and admin moderation.",
   keywords: [
     "Addistream",
     "music distribution",
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Addistream",
     description:
-      "Upload music, preview mastering, manage approvals, and grow a creator-first distribution platform.",
+      "A private audio workspace for creators to submit releases and manage moderation.",
     siteName: "Addistream",
     url: appUrl,
     type: "website",
@@ -37,7 +38,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Addistream",
     description:
-      "Upload music, manage approvals, and distribute creator content through a polished music platform dashboard.",
+      "Upload private audio, manage release details, and review submissions in Addistream.",
   },
   robots: {
     index: true,
@@ -52,7 +53,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col bg-slate-950 text-white">{children}</body>
+      <body className="min-h-full flex flex-col bg-slate-950 text-white">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }

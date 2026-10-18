@@ -1,9 +1,9 @@
 import Link from "next/link";
 
 const stats = [
-  { label: "Streams this month", value: "2.4M" },
-  { label: "Creator accounts", value: "1,284" },
-  { label: "Avg. payout", value: "$4,860" },
+  { label: "Audio storage", value: "Private" },
+  { label: "Moderation", value: "Admin review" },
+  { label: "Distribution", value: "Partner needed" },
 ];
 
 const pillars = [
@@ -16,19 +16,19 @@ const pillars = [
   {
     title: "Distribution Network",
     description:
-      "Push content to streaming platforms and build a wider audience with a lightweight distribution engine.",
+      "Prepare releases for delivery. Streaming service distribution requires a connected delivery partner.",
     accent: "text-blue-300",
   },
   {
     title: "Monetization",
     description:
-      "Offer $10 upload packs, free trials, and revenue tracking that keeps every creator deal clear.",
+      "Paid upload packs are planned. Checkout stays disabled until a payment provider is connected.",
     accent: "text-emerald-300",
   },
   {
     title: "Owner Analytics",
     description:
-      "See revenue, creator counts, trial performance, and approval queues from the master dashboard.",
+      "Review creator counts and submitted tracks. Revenue reporting requires a connected payment provider.",
     accent: "text-pink-300",
   },
 ];
@@ -72,13 +72,13 @@ export default function Home() {
             </span>
 
             <h2 className="max-w-xl text-4xl font-black tracking-tight sm:text-5xl lg:text-6xl">
-              Publish your sound.<br />
-              Grow your audience.<br />
-              Scale your income.
+              Prepare your music.<br />
+              Review every release.<br />
+              Keep control in hand.
             </h2>
 
             <p className="max-w-xl text-base leading-7 text-slate-300 md:text-lg">
-              Addistream gives artists and labels a streamlined path to upload tracks, monitor performance, approve content, and distribute music with a polished creator-first workflow.
+              Addistream gives artists and labels a secure workspace to upload audio, manage release details, and move submissions through moderation.
             </p>
 
             <div className="flex flex-wrap gap-4">
@@ -101,18 +101,18 @@ export default function Home() {
               <span>•</span>
               <span>Approval flow</span>
               <span>•</span>
-              <span>Creator payouts</span>
+              <span>Private audio storage</span>
             </div>
           </div>
 
           <div className="brand-glow rounded-[28px] border border-amber-400/20 bg-slate-900/80 p-5 shadow-2xl shadow-slate-950/70">
             <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Live platform</p>
-                <h3 className="mt-2 text-3xl font-black text-white">$18,420</h3>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Release workspace</p>
+                <h3 className="mt-2 text-3xl font-black text-white">Upload to review</h3>
               </div>
               <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-400">
-                +18.2%
+                Private
               </span>
             </div>
 
@@ -126,17 +126,14 @@ export default function Home() {
             </div>
 
             <div className="mt-5 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-950 via-slate-900 to-amber-500/5 p-4">
-              <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400">Revenue flow</p>
-              <div className="mt-4 h-24 rounded-2xl bg-gradient-to-r from-amber-500/20 via-emerald-400/20 to-sky-400/20 p-3">
-                <div className="flex h-full items-end gap-2">
-                  {[25, 45, 30, 60, 38, 72, 84].map((height, idx) => (
-                    <div
-                      key={idx}
-                      className="flex-1 rounded-t-xl bg-gradient-to-t from-amber-400 via-yellow-300 to-emerald-300"
-                      style={{ height: `${height}%` }}
-                    />
-                  ))}
-                </div>
+              <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400">Release stages</p>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                {['Upload', 'Review', 'Deliver'].map((stage, index) => (
+                  <div key={stage} className="rounded-xl border border-slate-800 bg-slate-950/60 px-2 py-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300">0{index + 1}</p>
+                    <p className="mt-1 text-xs font-semibold text-white">{stage}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

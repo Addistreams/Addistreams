@@ -2,93 +2,105 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 type UploadStatus = 'Queued' | 'Approved' | 'Rejected';
 
 type Track = {
-  id: number;
-  name: string;
+  id: string;
+  title: string;
   status: UploadStatus;
-  date: string;
-  size: string;
+  created_at: string;
+  file_size: number;
   mastering: number;
+  file_path: string;
   source?: string;
 };
 
-const STORAGE_KEY = 'addistream-creator-tracks';
-
 export default function MasterDashboard() {
+  const router = useRouter();
+  const supabase = getSupabaseBrowserClient();
   const [activeTab, setActiveTab] = useState<'overview' | 'monetization' | 'approvals'>('overview');
-  const [stripeSecretKey, setStripeSecretKey] = useState('sk_live_demo_123456');
-  const [trialDays, setTrialDays] = useState(30);
   const [queue, setQueue] = useState<Track[]>([]);
+  const [activeCreators, setActiveCreators] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(Boolean(supabase));
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      setQueue([
-        { id: 1, name: 'Midnight Echo', status: 'Approved', date: 'Today', size: '4.2 MB', mastering: 2, source: '' },
-        { id: 2, name: 'Velvet Signal', status: 'Queued', date: 'Today', size: '3.1 MB', mastering: -1, source: '' },
-      ]);
+    if (!supabase) {
       return;
     }
 
-    try {
-      const parsed = JSON.parse(saved) as Track[];
-      setQueue(parsed);
-    } catch {
-      setQueue([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
-    }
-  }, [queue]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const syncQueue = () => {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (!saved) return;
-
-      try {
-        const parsed = JSON.parse(saved) as Track[];
-        setQueue(parsed);
-      } catch {
-        setQueue([]);
+    let active = true;
+    void (async () => {
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) {
+        router.replace('/login?next=%2Fadmin');
+        return;
       }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', authData.user.id)
+        .single();
+
+      if (!active) return;
+      if (profileError || profile?.role !== 'admin') {
+        setLoading(false);
+        return;
+      }
+
+      setIsAdmin(true);
+      const [{ data: rows, error: tracksError }, { count, error: creatorsError }] = await Promise.all([
+        supabase.from('tracks').select('*').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'creator'),
+      ]);
+
+      if (!active) return;
+      if (tracksError || creatorsError) {
+        setError(tracksError?.message ?? creatorsError?.message ?? 'Could not load moderation data.');
+      } else {
+        setActiveCreators(count ?? 0);
+        const hydratedTracks = await Promise.all((rows ?? []).map(async (track) => {
+          const { data } = await supabase.storage.from('tracks').createSignedUrl(track.file_path, 3600);
+          return { ...track, source: data?.signedUrl } as Track;
+        }));
+        if (active) setQueue(hydratedTracks);
+      }
+      if (active) setLoading(false);
+    })();
+
+    return () => {
+      active = false;
     };
+  }, [router, supabase]);
 
-    window.addEventListener('storage', syncQueue);
-    return () => window.removeEventListener('storage', syncQueue);
-  }, []);
-
-  const totalRevenue = 1240.5;
-  const activeCreators = 12;
-  const uploadPacks = 48;
-
-  const handleApprove = (id: number) => {
-    setQueue((current) =>
-      current.map((item) =>
-        item.id === id ? { ...item, status: 'Approved' } : item,
-      ),
-    );
-  };
-
-  const handleReject = (id: number) => {
-    setQueue((current) =>
-      current.map((item) =>
-        item.id === id ? { ...item, status: 'Rejected' } : item,
-      ),
-    );
+  const updateTrackStatus = async (id: string, status: UploadStatus) => {
+    if (!supabase) return;
+    const { error: updateError } = await supabase.from('tracks').update({ status }).eq('id', id);
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+    setQueue((current) => current.map((item) => item.id === id ? { ...item, status } : item));
   };
 
   const pendingQueue = queue.filter((item) => item.status === 'Queued');
+
+  if (!supabase) {
+    return <AdminMessage title="Admin setup required" message="Configure Supabase in the deployment environment and apply supabase/schema.sql before opening the moderation console." />;
+  }
+
+  if (loading) {
+    return <AdminMessage title="Loading moderation" message="Checking administrator access and loading the track queue." />;
+  }
+
+  if (!isAdmin) {
+    return <AdminMessage title="Administrator access required" message="This account does not have the admin role. Ask the project owner to grant access in Supabase." />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col font-sans">
@@ -101,8 +113,8 @@ export default function MasterDashboard() {
             ADDI<span className="text-white">STREAMS</span> <span className="text-slate-500 font-normal text-xs">Admin Console</span>
           </h1>
         </div>
-        <Link href="/" className="text-xs text-slate-400 hover:text-white transition">
-          Exit to Platform →
+        <Link href="/creator" className="text-xs text-slate-400 hover:text-white transition">
+          Creator Studio →
         </Link>
       </header>
 
@@ -139,25 +151,27 @@ export default function MasterDashboard() {
             <div className="space-y-6">
               <div>
                 <h2 className="text-2xl font-black">Platform Overview</h2>
-                <p className="text-xs text-slate-400 mt-1">Live metrics from the Addistream network.</p>
+                <p className="text-xs text-slate-400 mt-1">Current counts from your Supabase project.</p>
               </div>
+
+              {error && <p role="alert" className="rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</p>}
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-                  <span className="text-xs text-slate-400 font-semibold uppercase">Total Revenue</span>
-                  <p className="text-3xl font-black text-teal-400 mt-2">${totalRevenue.toFixed(2)}</p>
+                  <span className="text-xs text-slate-400 font-semibold uppercase">Revenue</span>
+                  <p className="text-lg font-black text-slate-300 mt-2">Stripe not connected</p>
                 </div>
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
                   <span className="text-xs text-slate-400 font-semibold uppercase">Active Creators</span>
                   <p className="text-3xl font-black mt-2">{activeCreators}</p>
                 </div>
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-                  <span className="text-xs text-slate-400 font-semibold uppercase">Trial Members</span>
-                  <p className="text-3xl font-black text-amber-400 mt-2">{Math.max(1, Math.round(activeCreators / 2))}</p>
+                  <span className="text-xs text-slate-400 font-semibold uppercase">Awaiting Review</span>
+                  <p className="text-3xl font-black text-amber-400 mt-2">{pendingQueue.length}</p>
                 </div>
                 <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-                  <span className="text-xs text-slate-400 font-semibold uppercase">Upload Packs Sold</span>
-                  <p className="text-3xl font-black mt-2">{uploadPacks}</p>
+                  <span className="text-xs text-slate-400 font-semibold uppercase">Tracks Submitted</span>
+                  <p className="text-3xl font-black mt-2">{queue.length}</p>
                 </div>
               </div>
             </div>
@@ -166,44 +180,14 @@ export default function MasterDashboard() {
           {activeTab === 'monetization' && (
             <div className="space-y-6 max-w-2xl">
               <div>
-                <h2 className="text-2xl font-black">Monetization & Pack Controls</h2>
-                <p className="text-xs text-slate-400 mt-1">Configure creator trial rules and payment gateway integration.</p>
+                <h2 className="text-2xl font-black">Billing Integration</h2>
+                <p className="text-xs text-slate-400 mt-1">Payment processing is not enabled for this project yet.</p>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
-                <h3 className="text-sm font-bold text-amber-400">1. Creator Free Trial Window</h3>
-                <div className="flex items-center gap-4">
-                  <label className="text-xs text-slate-300">Default Trial Period (Days):</label>
-                  <input
-                    type="number"
-                    value={trialDays}
-                    min={1}
-                    onChange={(event) => setTrialDays(Number(event.target.value) || 1)}
-                    className="bg-slate-950 border border-slate-700 px-3 py-1.5 rounded-lg text-sm text-white w-24"
-                  />
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Creators upload freely during these {trialDays} days. Once expired, they must purchase the $10 Pack (10 credits) to upload.
-                </p>
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
-                <h3 className="text-sm font-bold text-amber-400">2. Gateway Configuration</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-1">Stripe Secret API Key</label>
-                    <input
-                      type="password"
-                      placeholder="sk_live_..."
-                      value={stripeSecretKey}
-                      onChange={(event) => setStripeSecretKey(event.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-sm text-white"
-                    />
-                  </div>
-                  <button className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider transition">
-                    Save Gateway Credentials
-                  </button>
-                </div>
+                <h3 className="text-sm font-bold text-amber-400">Stripe account required</h3>
+                <p className="text-sm leading-6 text-slate-300">Credit pack payments need a Stripe account, server-side API key, and a verified webhook. Secret keys must be added to Vercel environment variables, never entered or stored in this dashboard.</p>
+                <p className="text-xs text-slate-500">Until billing is connected, upload credit purchases remain disabled and no payment will be collected.</p>
               </div>
             </div>
           )}
@@ -221,9 +205,9 @@ export default function MasterDashboard() {
                     <div key={item.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
                       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <div>
-                          <p className="font-bold text-white">{item.name}</p>
+                            <p className="font-bold text-white">{item.title}</p>
                           <p className="text-xs text-slate-400">
-                            {item.size} • Mastering {item.mastering > 0 ? `+${item.mastering}` : item.mastering} dB
+                            {new Date(item.created_at).toLocaleDateString()} • Mastering {item.mastering > 0 ? `+${item.mastering}` : item.mastering} dB
                           </p>
                         </div>
 
@@ -232,13 +216,13 @@ export default function MasterDashboard() {
                             {item.status}
                           </span>
                           <button
-                            onClick={() => handleApprove(item.id)}
+                            onClick={() => void updateTrackStatus(item.id, 'Approved')}
                             className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-2 rounded-lg text-xs font-bold"
                           >
                             Approve
                           </button>
                           <button
-                            onClick={() => handleReject(item.id)}
+                            onClick={() => void updateTrackStatus(item.id, 'Rejected')}
                             className="bg-red-500 hover:bg-red-400 text-white px-3 py-2 rounded-lg text-xs font-bold"
                           >
                             Reject
@@ -260,5 +244,17 @@ export default function MasterDashboard() {
         </main>
       </div>
     </div>
+  );
+}
+
+function AdminMessage({ title, message }: { title: string; message: string }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+      <section className="max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-8">
+        <h1 className="text-xl font-black text-amber-300">{title}</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-300">{message}</p>
+        <Link href="/" className="mt-6 inline-block text-sm font-bold text-amber-300">Back to Addistream</Link>
+      </section>
+    </main>
   );
 }

@@ -2,20 +2,26 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 type UploadStatus = 'Queued' | 'Approved' | 'Rejected';
 
 type Track = {
-  id: number;
-  name: string;
+  id: string;
+  title: string;
   status: UploadStatus;
-  date: string;
-  size: string;
+  created_at: string;
+  file_size: number;
   mastering: number;
+  file_path: string;
   source?: string;
 };
 
-const STORAGE_KEY = 'addistream-creator-tracks';
+type SelectedAudioFile = {
+  file: File;
+  previewUrl: string;
+};
 
 const formatFileSize = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -24,73 +30,68 @@ const formatFileSize = (bytes: number) => {
 };
 
 export default function CreatorDashboard() {
+  const router = useRouter();
+  const supabase = getSupabaseBrowserClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [credits, setCredits] = useState(10);
+  const previewUrlsRef = useRef(new Set<string>());
+  const [credits, setCredits] = useState(0);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(Boolean(supabase));
+  const [error, setError] = useState('');
   const [uploadName, setUploadName] = useState('');
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedAudioFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [masteringBoost, setMasteringBoost] = useState(0);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [checkoutEmail, setCheckoutEmail] = useState('owner@addistream.com');
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const previewUrl = selectedFiles[0]?.previewUrl ?? null;
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) {
-      setTracks([
-        { id: 1, name: 'Midnight Echo', status: 'Approved', date: 'Today', size: '4.2 MB', mastering: 2 },
-        { id: 2, name: 'City Lights', status: 'Queued', date: 'Yesterday', size: '3.1 MB', mastering: -1 },
-      ]);
+    if (!supabase) {
       return;
     }
-    try {
-      const parsed = JSON.parse(saved) as Track[];
-      setTracks(parsed);
-    } catch {
-      setTracks([]);
-    }
-  }, []);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(tracks));
-    }
-  }, [tracks]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const syncFromStorage = () => {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (!saved) return;
-
-      try {
-        const parsed = JSON.parse(saved) as Track[];
-        setTracks(parsed);
-      } catch {
-        setTracks([]);
+    let active = true;
+    void (async () => {
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) {
+        router.replace('/login?next=%2Fcreator');
+        return;
       }
-    };
 
-    window.addEventListener('storage', syncFromStorage);
-    return () => window.removeEventListener('storage', syncFromStorage);
-  }, []);
+      setUserId(authData.user.id);
+      const [{ data: profile, error: profileError }, { data: rows, error: tracksError }] = await Promise.all([
+        supabase.from('profiles').select('upload_credits').eq('id', authData.user.id).single(),
+        supabase.from('tracks').select('*').eq('user_id', authData.user.id).order('created_at', { ascending: false }),
+      ]);
+
+      if (!active) return;
+      if (profileError || tracksError) {
+        setError(profileError?.message ?? tracksError?.message ?? 'Could not load your studio data.');
+      } else {
+        setCredits(profile.upload_credits);
+        const hydratedTracks = await Promise.all((rows ?? []).map(async (track) => {
+          const { data } = await supabase.storage.from('tracks').createSignedUrl(track.file_path, 3600);
+          return { ...track, source: data?.signedUrl } as Track;
+        }));
+        if (active) setTracks(hydratedTracks);
+      }
+      if (active) setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [router, supabase]);
 
   useEffect(() => {
-    if (!selectedFiles[0]) {
-      setPreviewUrl(null);
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(selectedFiles[0]);
-    setPreviewUrl(objectUrl);
-
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [selectedFiles]);
+    const previewUrls = previewUrlsRef.current;
+    return () => {
+      previewUrls.forEach((url) => URL.revokeObjectURL(url));
+      previewUrls.clear();
+    };
+  }, []);
 
   const remainingLabel = useMemo(() => {
     if (credits <= 0) return 'No upload credits left';
@@ -100,21 +101,21 @@ export default function CreatorDashboard() {
   const addFiles = (incomingFiles: FileList | File[]) => {
     const audioFiles = Array.from(incomingFiles).filter((file) => file.type.startsWith('audio/'));
 
-    if (!audioFiles.length) return;
+    if (!audioFiles.length) {
+      setError('Choose an audio file to upload.');
+      return;
+    }
 
-    setSelectedFiles((current) => {
-      const merged = [...current];
+    setError('');
 
-      audioFiles.forEach((file) => {
-        const exists = merged.some(
-          (existing) => existing.name === file.name && existing.size === file.size,
-        );
-
-        if (!exists) merged.push(file);
+    const additions = audioFiles
+      .filter((file) => !selectedFiles.some((entry) => entry.file.name === file.name && entry.file.size === file.size))
+      .map((file) => {
+        const url = URL.createObjectURL(file);
+        previewUrlsRef.current.add(url);
+        return { file, previewUrl: url };
       });
-
-      return merged;
-    });
+    if (additions.length) setSelectedFiles((current) => [...current, ...additions]);
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -130,60 +131,74 @@ export default function CreatorDashboard() {
     }
   };
 
-  const handleBuyPack = () => {
-    setCheckoutOpen((value) => !value);
-  };
-
-  const handleCheckout = () => {
-    setCredits((value) => value + 10);
-    setCheckoutOpen(false);
-  };
-
-  const handleUploadTrack = () => {
-    if (!selectedFiles.length || credits <= 0 || uploading) {
+  const handleUploadTrack = async () => {
+    if (!supabase || !userId || !selectedFiles.length || credits <= 0 || uploading) {
       return;
     }
 
-    const file = selectedFiles[0];
+    const selectedAudio = selectedFiles[0];
+    const file = selectedAudio.file;
     const name = uploadName.trim() || file.name.replace(/\.[^/.]+$/, '');
     setUploading(true);
+    setError('');
 
-    window.setTimeout(() => {
-      const fileUrl = previewUrl ?? URL.createObjectURL(file);
-      setTracks((current) => [
-        {
-          id: Date.now(),
-          name,
-          status: 'Queued',
-          date: 'Just now',
-          size: formatFileSize(file.size),
-          mastering: masteringBoost,
-          source: fileUrl,
-        },
-        ...current,
-      ]);
+    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = `${userId}/${crypto.randomUUID()}-${safeFileName}`;
+    const { error: storageError } = await supabase.storage.from('tracks').upload(filePath, file, {
+      contentType: file.type,
+      upsert: false,
+    });
 
-      setSelectedFiles((current) => current.slice(1));
-      setUploadName('');
-      setCredits((value) => value - 1);
+    if (storageError) {
+      setError(storageError.message);
       setUploading(false);
-      setIsPreviewing(false);
-    }, 900);
+      return;
+    }
+
+    const { data: track, error: submitError } = await supabase.rpc('submit_track', {
+      track_title: name,
+      track_file_path: filePath,
+      track_file_size: file.size,
+      track_mastering: masteringBoost,
+    });
+
+    if (submitError) {
+      await supabase.storage.from('tracks').remove([filePath]);
+      setError(submitError.message);
+      setUploading(false);
+      return;
+    }
+
+    const fileUrl = selectedAudio.previewUrl;
+    setTracks((current) => [{ ...track, source: fileUrl } as Track, ...current]);
+    setSelectedFiles((current) => current.slice(1));
+    setUploadName('');
+    setCredits((value) => value - 1);
+    setUploading(false);
+    setIsPreviewing(false);
   };
 
-  const totalSelectedSize = selectedFiles.reduce((total, file) => total + file.size, 0);
+  const totalSelectedSize = selectedFiles.reduce((total, entry) => total + entry.file.size, 0);
 
   const handleDownload = (track: Track) => {
     if (!track.source) return;
 
     const anchor = document.createElement('a');
     anchor.href = track.source;
-    anchor.download = `${track.name}.mp3`;
+    anchor.download = track.file_path.split('/').pop() ?? `${track.title}.audio`;
     anchor.rel = 'noopener noreferrer';
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
   };
+
+  if (!supabase) {
+    return <DashboardMessage title="Studio setup required" message="Add the Supabase project URL and public anon key to the environment, then apply supabase/schema.sql in the Supabase SQL editor." />;
+  }
+
+  if (loading) {
+    return <DashboardMessage title="Loading your studio" message="Checking your account and loading your music library." />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-6 md:p-8">
@@ -209,50 +224,24 @@ export default function CreatorDashboard() {
             <p className="text-4xl font-black text-amber-400 mt-2">{credits}</p>
             <p className="text-xs text-slate-500 mt-1">1 credit = 1 track upload</p>
             <button
-              onClick={handleBuyPack}
-              className="mt-4 w-full bg-amber-400/10 hover:bg-amber-400/20 text-amber-400 border border-amber-400/30 text-xs font-bold py-2 rounded-xl transition"
+              disabled
+              className="mt-4 w-full cursor-not-allowed bg-slate-800 text-slate-400 border border-slate-700 text-xs font-bold py-2 rounded-xl"
             >
-              Buy 10 Uploads Pack ($10)
+              Credit purchases unavailable
             </button>
-
-            {checkoutOpen && (
-              <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950 p-4 space-y-3">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Checkout</p>
-                  <p className="mt-2 text-lg font-black text-white">10 uploads • $10.00</p>
-                </div>
-
-                <input
-                  type="email"
-                  value={checkoutEmail}
-                  onChange={(event) => setCheckoutEmail(event.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-sm text-white"
-                />
-
-                <button
-                  onClick={handleCheckout}
-                  className="w-full bg-amber-400 text-slate-950 font-black px-3 py-2 rounded-lg text-xs uppercase tracking-wider"
-                >
-                  Complete purchase
-                </button>
-              </div>
-            )}
+            <p className="mt-2 text-[11px] text-slate-500">Connect Stripe to enable credit packs.</p>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-            <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider">
-              Total Streams
-            </h3>
-            <p className="text-4xl font-black mt-2">24,830</p>
-            <p className="text-xs text-emerald-400 mt-1">+12.4% this month</p>
+            <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider">Tracks Submitted</h3>
+            <p className="text-4xl font-black mt-2">{tracks.length}</p>
+            <p className="text-xs text-slate-500 mt-1">Stored in your library</p>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-            <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider">
-              Earnings
-            </h3>
-            <p className="text-4xl font-black text-teal-400 mt-2">$1,240.50</p>
-            <p className="text-xs text-slate-500 mt-1">Payout in 3 days</p>
+            <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider">Approved Tracks</h3>
+            <p className="text-4xl font-black text-teal-400 mt-2">{tracks.filter((track) => track.status === 'Approved').length}</p>
+            <p className="text-xs text-slate-500 mt-1">Revenue reporting is not connected</p>
           </div>
         </div>
 
@@ -261,6 +250,8 @@ export default function CreatorDashboard() {
             <h2 className="text-xl font-black">Add songs</h2>
             <span className="text-xs text-slate-400">{selectedFiles.length} file(s) ready</span>
           </div>
+
+          {error && <p role="alert" className="mb-4 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</p>}
 
           <div
             onDragOver={(event) => {
@@ -304,7 +295,7 @@ export default function CreatorDashboard() {
               </div>
 
               <div className="space-y-2">
-                {selectedFiles.map((file, index) => (
+                {selectedFiles.map(({ file }, index) => (
                   <div key={`${file.name}-${index}`} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
                     <div>
                       <p className="font-medium text-white">{file.name}</p>
@@ -312,7 +303,12 @@ export default function CreatorDashboard() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setSelectedFiles((current) => current.filter((_, idx) => idx !== index))}
+                      onClick={() => {
+                        const removed = selectedFiles[index];
+                        URL.revokeObjectURL(removed.previewUrl);
+                        previewUrlsRef.current.delete(removed.previewUrl);
+                        setSelectedFiles((current) => current.filter((_, idx) => idx !== index));
+                      }}
                       className="text-xs font-bold text-red-400 hover:text-red-300"
                     >
                       Remove
@@ -351,7 +347,7 @@ export default function CreatorDashboard() {
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Preview & mastering</p>
                   <h3 className="mt-1 text-lg font-black text-white">
-                    {uploadName.trim() || selectedFiles[0].name.replace(/\.[^/.]+$/, '')}
+                    {uploadName.trim() || selectedFiles[0].file.name.replace(/\.[^/.]+$/, '')}
                   </h3>
                 </div>
 
@@ -404,7 +400,7 @@ export default function CreatorDashboard() {
                   <audio controls src={previewUrl} className="w-full" />
                   <a
                     href={previewUrl}
-                    download={`${uploadName.trim() || selectedFiles[0].name.replace(/\.[^/.]+$/, '')}.mp3`}
+                    download={`${uploadName.trim() || selectedFiles[0].file.name.replace(/\.[^/.]+$/, '')}.mp3`}
                     className="inline-flex rounded-lg bg-amber-400 px-3 py-2 text-xs font-black uppercase tracking-[0.18em] text-slate-950"
                   >
                     Download file
@@ -430,8 +426,8 @@ export default function CreatorDashboard() {
             {tracks.map((track) => (
               <div key={track.id} className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <p className="font-semibold text-white">{track.name}</p>
-                  <p className="text-xs text-slate-400">{track.date} • {track.size}</p>
+                  <p className="font-semibold text-white">{track.title}</p>
+                  <p className="text-xs text-slate-400">{new Date(track.created_at).toLocaleDateString()} • {formatFileSize(track.file_size)}</p>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -465,5 +461,17 @@ export default function CreatorDashboard() {
         </section>
       </main>
     </div>
+  );
+}
+
+function DashboardMessage({ title, message }: { title: string; message: string }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+      <section className="max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-8">
+        <h1 className="text-xl font-black text-amber-300">{title}</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-300">{message}</p>
+        <Link href="/" className="mt-6 inline-block text-sm font-bold text-amber-300">Back to Addistream</Link>
+      </section>
+    </main>
   );
 }

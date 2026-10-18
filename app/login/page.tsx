@@ -3,8 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { FormEvent, Suspense, useEffect, useState } from 'react';
-
-const SESSION_KEY = 'addistream-session';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
   return (
@@ -29,37 +28,54 @@ function LoginLoadingState() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const nextPath = searchParams.get('next') ?? '/creator';
-  const [email, setEmail] = useState('creator@addistream.com');
-  const [password, setPassword] = useState('demo123');
+  const requestedPath = searchParams.get('next') ?? '/creator';
+  const nextPath = requestedPath.startsWith('/') && !requestedPath.startsWith('//') ? requestedPath : '/creator';
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [submitting, setSubmitting] = useState(false);
+  const supabase = getSupabaseBrowserClient();
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!supabase) return;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (data.session) router.replace(nextPath);
+    });
+  }, [nextPath, router, supabase]);
 
-    const saved = window.localStorage.getItem(SESSION_KEY);
-    if (saved) {
-      router.replace(nextPath);
-    }
-  }, [nextPath, router]);
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!email.trim() || !password.trim()) {
-      setError('Enter both your email and password to continue.');
+    if (!supabase) {
+      setError('Authentication is not configured yet. Add the Supabase URL and public anon key to the deployment environment.');
       return;
     }
 
-    const session = {
-      email: email.trim(),
-      name: email.split('@')[0] || 'creator',
-      role: email.includes('admin') ? 'admin' : 'creator',
-      loggedInAt: new Date().toISOString(),
-    };
-
-    window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    setSubmitting(true);
     setError('');
+    setNotice('');
+
+    const result = mode === 'signin'
+      ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      : await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { emailRedirectTo: `${window.location.origin}/login` },
+        });
+
+    setSubmitting(false);
+    if (result.error) {
+      setError(result.error.message);
+      return;
+    }
+
+    if (mode === 'signup' && !result.data.session) {
+      setNotice('Check your email to confirm your account, then sign in.');
+      return;
+    }
+
     router.push(nextPath);
   };
 
@@ -95,9 +111,9 @@ function LoginForm() {
 
             <div className="grid gap-4 sm:grid-cols-3">
               {[
-                ['Uploads', '2.4M tracks'],
-                ['Approvals', '4.8k queued'],
-                ['Payouts', '$18.4k / mo'],
+                ['Audio', 'Private storage'],
+                ['Review', 'Admin controlled'],
+                ['Access', 'Account protected'],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-lg shadow-slate-950/50">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">{label}</p>
@@ -111,6 +127,15 @@ function LoginForm() {
             <div className="mb-5">
               <p className="text-[10px] uppercase tracking-[0.28em] text-slate-400">Welcome back</p>
               <h2 className="mt-2 text-2xl font-black text-white">Log in</h2>
+            </div>
+
+            <div className="mb-5 grid grid-cols-2 rounded-xl border border-slate-700 bg-slate-950 p-1">
+              <button type="button" onClick={() => setMode('signin')} className={`rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider ${mode === 'signin' ? 'bg-amber-400 text-slate-950' : 'text-slate-400'}`}>
+                Sign in
+              </button>
+              <button type="button" onClick={() => setMode('signup')} className={`rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider ${mode === 'signup' ? 'bg-amber-400 text-slate-950' : 'text-slate-400'}`}>
+                Create account
+              </button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -135,6 +160,7 @@ function LoginForm() {
                 <input
                   id="password"
                   type="password"
+                  minLength={8}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none transition focus:border-amber-400"
@@ -147,20 +173,36 @@ function LoginForm() {
                   {error}
                 </div>
               )}
+              {notice && (
+                <div role="status" className="rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+                  {notice}
+                </div>
+              )}
 
               <button
                 type="submit"
+                disabled={submitting}
                 className="w-full rounded-xl bg-gradient-to-r from-amber-300 via-amber-400 to-orange-400 px-4 py-3 text-sm font-black uppercase tracking-[0.2em] text-slate-950 transition hover:brightness-105"
               >
-                Sign in
+                {submitting ? 'Please wait...' : mode === 'signin' ? 'Sign in' : 'Create account'}
               </button>
             </form>
 
-            <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-300">
-              <p className="font-bold uppercase tracking-[0.2em] text-slate-400">Demo access</p>
-              <p className="mt-2">Try with any email and password, or use:</p>
-              <p className="mt-2 text-amber-300">creator@addistream.com / demo123</p>
-            </div>
+            {!supabase && (
+              <div role="status" className="mt-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-100">
+                Supabase is not configured for this deployment yet.
+              </div>
+            )}
+            {mode === 'signup' && (
+              <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-300">
+                Accounts are verified by email. New accounts start with 10 upload credits.
+              </div>
+            )}
+            {mode === 'signin' && (
+              <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-300">
+                Sign in with the email and password you used to create your account.
+              </div>
+            )}
           </div>
         </div>
       </div>
